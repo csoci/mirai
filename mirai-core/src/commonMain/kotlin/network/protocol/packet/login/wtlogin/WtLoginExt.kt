@@ -10,13 +10,13 @@
 package net.mamoe.mirai.internal.network.protocol.packet.login.wtlogin
 
 import kotlinx.io.core.*
+import net.mamoe.mirai.internal.QQAndroidBot
 import net.mamoe.mirai.internal.network.LoginExtraData
 import net.mamoe.mirai.internal.network.QQAndroidClient
-import net.mamoe.mirai.internal.network.protocol.packet.EMPTY_BYTE_ARRAY
+import net.mamoe.mirai.internal.network.WLoginSigInfo
 import net.mamoe.mirai.internal.network.protocol.packet.Tlv
 import net.mamoe.mirai.internal.network.protocol.packet.login.WtLogin
 import net.mamoe.mirai.internal.network.protocol.packet.t145
-import net.mamoe.mirai.internal.network.readUShortLVByteArray
 import net.mamoe.mirai.internal.utils.crypto.TEA
 import net.mamoe.mirai.internal.utils.io.writeShortLVByteArray
 import net.mamoe.mirai.utils.*
@@ -40,14 +40,14 @@ internal inline fun WtLoginExt.analysisTlv0x531(
 
 internal interface WtLoginExt { // so as not to register to global extension
 
-    fun onErrorMessage(tlvMap: TlvMap): WtLogin.Login.LoginPacketResponse.Error? {
+    fun onErrorMessage(type: Int, tlvMap: TlvMap, bot: QQAndroidBot): WtLogin.Login.LoginPacketResponse.Error? {
         return tlvMap[0x149]?.read {
             discardExact(2) //type
             val title: String = readUShortLVString()
             val content: String = readUShortLVString()
             val otherInfo: String = readUShortLVString()
 
-            WtLogin.Login.LoginPacketResponse.Error(title, content, otherInfo)
+            WtLogin.Login.LoginPacketResponse.Error(bot, type, title, content, otherInfo)
         } ?: tlvMap[0x146]?.read {
             discardExact(2) // ver
             discardExact(2)  // code
@@ -56,7 +56,7 @@ internal interface WtLoginExt { // so as not to register to global extension
             val message = readUShortLVString()
             val errorInfo = readUShortLVString()
 
-            WtLogin.Login.LoginPacketResponse.Error(title, message, errorInfo)
+            WtLogin.Login.LoginPacketResponse.Error(bot, type, title, message, errorInfo)
         }
     }
 
@@ -114,6 +114,23 @@ internal interface WtLoginExt { // so as not to register to global extension
                 )
             )
         }
+    }
+
+    /**
+     * Encrypt sig and key for pic downloading
+     */
+    fun QQAndroidClient.analysisTlv11d(t11d: ByteArray): WLoginSigInfo.EncryptedDownloadSession = t11d.read {
+        val appid = readInt().toLong().and(4294967295L)
+        val stKey = ByteArray(16)
+        readAvailable(stKey)
+        val stSigLength = readUShort().toInt()
+        val stSig = ByteArray(stSigLength)
+        readAvailable(stSig)
+        WLoginSigInfo.EncryptedDownloadSession(
+            appid,
+            stKey,
+            stSig
+        )
     }
 
     /**

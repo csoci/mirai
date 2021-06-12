@@ -10,7 +10,7 @@
 package net.mamoe.mirai.internal.network.protocol.packet.login.wtlogin
 
 import kotlinx.io.core.toByteArray
-import net.mamoe.mirai.internal.network.QQAndroidClient
+import net.mamoe.mirai.internal.network.*
 import net.mamoe.mirai.internal.network.protocol.packet.*
 import net.mamoe.mirai.internal.network.protocol.packet.login.WtLogin
 
@@ -20,7 +20,7 @@ internal object WtLogin9 : WtLoginExt {
     operator fun invoke(
         client: QQAndroidClient,
         allowSlider: Boolean
-    ): OutgoingPacket = WtLogin.Login.buildLoginOutgoingPacket(client, bodyType = 2) { sequenceId ->
+    ) = WtLogin.Login.buildLoginOutgoingPacket(client, bodyType = 2) { sequenceId ->
         writeSsoPacket(client, client.subAppId, WtLogin.Login.commandName, sequenceId = sequenceId) {
             writeOicqRequestPacket(client, EncryptMethodECDH(client.ecdh), 0x0810) {
                 writeShort(9) // subCommand

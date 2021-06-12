@@ -99,11 +99,13 @@ private val builtInSerializersModule by lazy {
 
         contextual(ShowImageFlag::class, ShowImageFlag.Serializer)
 
+        contextual(MessageOriginKind::class, MessageOriginKind.serializer())
 
         fun PolymorphicModuleBuilder<MessageMetadata>.messageMetadataSubclasses() {
             subclass(MessageSource::class, MessageSource.serializer())
             subclass(QuoteReply::class, QuoteReply.serializer())
             subclass(ShowImageFlag::class, ShowImageFlag.Serializer)
+            subclass(MessageOrigin::class, MessageOrigin.serializer())
         }
 
         fun PolymorphicModuleBuilder<MessageContent>.messageContentSubclasses() {
@@ -190,7 +192,11 @@ private val builtInSerializersModule by lazy {
 internal object MessageSerializersImpl : MessageSerializers {
     @Volatile
     private var serializersModuleField: SerializersModule? = null
-    override val serializersModule: SerializersModule get() = serializersModuleField ?: builtInSerializersModule
+    override val serializersModule: SerializersModule
+        get() {
+            Mirai // ensure registered, for tests
+            return serializersModuleField ?: builtInSerializersModule
+        }
 
     @Synchronized
     override fun <M : SingleMessage> registerSerializer(type: KClass<M>, serializer: KSerializer<M>) {

@@ -9,21 +9,17 @@
 
 package net.mamoe.mirai.internal.utils
 
-import io.ktor.client.request.*
-import io.ktor.http.*
-import io.ktor.http.content.*
-import io.ktor.utils.io.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.runBlocking
 import net.mamoe.mirai.contact.Contact
 import net.mamoe.mirai.contact.Group
 import net.mamoe.mirai.contact.isOperator
-import net.mamoe.mirai.internal.EMPTY_BYTE_ARRAY
 import net.mamoe.mirai.internal.asQQAndroidBot
 import net.mamoe.mirai.internal.contact.groupCode
 import net.mamoe.mirai.internal.message.FileMessageImpl
 import net.mamoe.mirai.internal.network.highway.Highway
 import net.mamoe.mirai.internal.network.highway.ResourceKind
+import net.mamoe.mirai.internal.network.protocol
 import net.mamoe.mirai.internal.network.protocol.data.proto.*
 import net.mamoe.mirai.internal.network.protocol.packet.chat.FileManagement
 import net.mamoe.mirai.internal.network.protocol.packet.chat.toResult
@@ -122,7 +118,7 @@ internal class RemoteFileImpl(
         get() {
             if (path == ROOT_PATH) return null
             val s = path.substringBeforeLast('/')
-            return RemoteFileImpl(contact, if (s.isEmpty()) ROOT_PATH else s)
+            return RemoteFileImpl(contact, s.ifEmpty { ROOT_PATH })
         }
 
     /**
@@ -302,7 +298,22 @@ internal class RemoteFileImpl(
     }
 
     override suspend fun resolveById(id: String, deep: Boolean): RemoteFile? {
-        return getFilesFlow().filter { it.id == id }.firstOrNull()?.resolveToFile()
+        if (this.id == id) return this
+        val dirs = mutableListOf<Oidb0x6d8.GetFileListRspBody.Item>()
+        getFilesFlow().mapNotNull { item ->
+            when {
+                item.id == id -> item.resolveToFile()
+                deep && item.folderInfo != null -> {
+                    dirs.add(item)
+                    null
+                }
+                else -> null
+            }
+        }.firstOrNull()?.let { return it }
+        for (dir in dirs) {
+            dir.resolveToFile()?.resolveById(id, deep)?.let { return it }
+        }
+        return null
     }
 
     override fun resolveSibling(relative: String): RemoteFileImpl {
@@ -407,7 +418,6 @@ internal class RemoteFileImpl(
     }
 
 
-    override suspend fun moveTo(path: String): Boolean = moveTo(resolve(path))
     override suspend fun mkdir(): Boolean {
         if (path == ROOT_PATH) return false
         if (!isBotOperator()) return false
@@ -514,6 +524,7 @@ internal class RemoteFileImpl(
     }
 
     override suspend fun uploadAndSend(resource: ExternalResource): MessageReceipt<Contact> {
+        @Suppress("DEPRECATION")
         return upload(resource).sendTo(contact)
     }
 

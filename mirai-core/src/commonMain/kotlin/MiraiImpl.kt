@@ -9,29 +9,34 @@
 
 package net.mamoe.mirai.internal
 
-import contact.StrangerImpl
 import io.ktor.client.*
 import io.ktor.client.engine.okhttp.*
 import io.ktor.client.features.*
 import io.ktor.client.request.*
 import io.ktor.client.request.forms.*
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.io.core.discardExact
 import kotlinx.io.core.readBytes
 import kotlinx.serialization.json.*
 import net.mamoe.mirai.*
 import net.mamoe.mirai.contact.*
 import net.mamoe.mirai.data.*
+import net.mamoe.mirai.event.Event
+import net.mamoe.mirai.event.broadcast
 import net.mamoe.mirai.event.events.*
 import net.mamoe.mirai.internal.contact.*
 import net.mamoe.mirai.internal.contact.info.FriendInfoImpl
 import net.mamoe.mirai.internal.contact.info.MemberInfoImpl
 import net.mamoe.mirai.internal.message.*
+import net.mamoe.mirai.internal.message.DeepMessageRefiner.refineDeep
+import net.mamoe.mirai.internal.network.components.EventDispatcher
+import net.mamoe.mirai.internal.network.components.EventDispatcherScopeFlag
 import net.mamoe.mirai.internal.network.highway.*
 import net.mamoe.mirai.internal.network.protocol.data.jce.SvcDevLoginInfo
 import net.mamoe.mirai.internal.network.protocol.data.proto.ImMsgBody
 import net.mamoe.mirai.internal.network.protocol.data.proto.LongMsg
+import net.mamoe.mirai.internal.network.protocol.data.proto.MsgComm
 import net.mamoe.mirai.internal.network.protocol.data.proto.MsgTransmit
 import net.mamoe.mirai.internal.network.protocol.packet.chat.*
 import net.mamoe.mirai.internal.network.protocol.packet.chat.voice.PttStore
@@ -39,7 +44,7 @@ import net.mamoe.mirai.internal.network.protocol.packet.list.FriendList
 import net.mamoe.mirai.internal.network.protocol.packet.login.StatSvc
 import net.mamoe.mirai.internal.network.protocol.packet.sendAndExpect
 import net.mamoe.mirai.internal.network.protocol.packet.summarycard.SummaryCard
-import net.mamoe.mirai.internal.utils.broadcastWithBot
+import net.mamoe.mirai.internal.utils.MiraiProtocolInternal
 import net.mamoe.mirai.internal.utils.crypto.TEA
 import net.mamoe.mirai.internal.utils.io.serialization.loadAs
 import net.mamoe.mirai.internal.utils.io.serialization.toByteArray
@@ -152,12 +157,12 @@ internal open class MiraiImpl : IMirai, LowLevelApiAccessor {
         )
 
         event.bot.getFriend(event.fromId)?.let { friend ->
-            FriendAddEvent(friend).broadcastWithBot(event.bot)
+            FriendAddEvent(friend).broadcast()
         }
     }
 
     override suspend fun refreshKeys(bot: Bot) {
-        bot.asQQAndroidBot().network.refreshKeys()
+        // TODO: 2021/4/14 MiraiImpl.refreshKeysNow
     }
 
     override suspend fun rejectNewFriendRequest(event: NewFriendRequestEvent, blackList: Boolean) {
@@ -250,7 +255,9 @@ internal open class MiraiImpl : IMirai, LowLevelApiAccessor {
         )
 
         return response.deviceList.map { it.toOtherClientInfo() }.let { result ->
-            if (mayIncludeSelf) result else result.filterNot { it.appId == bot.client.protocol.id.toInt() }
+            if (mayIncludeSelf) result else result.filterNot {
+                it.appId == MiraiProtocolInternal[bot.configuration.protocol].id.toInt()
+            }
         }
     }
 
@@ -278,6 +285,20 @@ internal open class MiraiImpl : IMirai, LowLevelApiAccessor {
     override suspend fun ignoreInvitedJoinGroupRequest(event: BotInvitedJoinGroupRequestEvent) =
         solveInvitedJoinGroupRequest(event, accept = false)
 
+    override suspend fun broadcastEvent(event: Event) {
+        if (currentCoroutineContext()[EventDispatcherScopeFlag] != null) {
+            // called by [EventDispatcher]
+            return super.broadcastEvent(event)
+        }
+        if (event is BotEvent) {
+            val bot = event.bot
+            if (bot is QQAndroidBot) {
+                bot.components[EventDispatcher].broadcast(event)
+            }
+        } else {
+            super.broadcastEvent(event)
+        }
+    }
 
     private suspend fun solveInvitedJoinGroupRequest(event: BotInvitedJoinGroupRequestEvent, accept: Boolean) {
         @Suppress("INVISIBLE_REFERENCE", "INVISIBLE_MEMBER")
@@ -321,8 +342,7 @@ internal open class MiraiImpl : IMirai, LowLevelApiAccessor {
     override suspend fun getRawGroupList(bot: Bot): Sequence<Long> {
         bot.asQQAndroidBot()
         return bot.network.run {
-            FriendList.GetTroopListSimplify(bot.client)
-                .sendAndExpect<FriendList.GetTroopListSimplify.Response>(retry = 2)
+            FriendList.GetTroopListSimplify(bot.client).sendAndExpect(retry = 2)
         }.groups.asSequence().map { it.groupUin.shl(32) and it.groupCode }
     }
 
@@ -342,7 +362,7 @@ internal open class MiraiImpl : IMirai, LowLevelApiAccessor {
                     targetGroupUin = groupUin,
                     targetGroupCode = groupCode,
                     nextUin = nextUin
-                ).sendAndExpect<FriendList.GetTroopMemberList.Response>(retry = 3)
+                ).sendAndExpect(retry = 3)
                 sequence += data.members.asSequence().map { troopMemberInfo ->
                     MemberInfoImpl(bot.client, troopMemberInfo, ownerId)
                 }
@@ -386,7 +406,7 @@ internal open class MiraiImpl : IMirai, LowLevelApiAccessor {
                 messageIds,
                 messageInternalIds,
                 time,
-            ).sendAndExpect<PbMessageSvc.PbMsgWithDraw.Response>()
+            ).sendAndExpect()
         }
 
         response is PbMessageSvc.PbMsgWithDraw.Response.Success
@@ -408,7 +428,7 @@ internal open class MiraiImpl : IMirai, LowLevelApiAccessor {
                 messageIds,
                 messageInternalIds,
                 time,
-            ).sendAndExpect<PbMessageSvc.PbMsgWithDraw.Response>()
+            ).sendAndExpect()
         }
 
         response is PbMessageSvc.PbMsgWithDraw.Response.Success
@@ -555,56 +575,32 @@ internal open class MiraiImpl : IMirai, LowLevelApiAccessor {
             }
         }
 //        bot.network.logger.error(rep)
-        return bot.json.decodeFromString(GroupAnnouncementList.serializer(), rep)
+        return json.decodeFromString(GroupAnnouncementList.serializer(), rep)
+    }
+
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
     }
 
     @LowLevelApi
     @MiraiExperimentalApi
     override suspend fun sendGroupAnnouncement(bot: Bot, groupId: Long, announcement: GroupAnnouncement): String =
         bot.asQQAndroidBot().run {
-            val rep = withContext(network.coroutineContext) {
-                Mirai.Http.post<String> {
-                    url("https://web.qun.qq.com/cgi-bin/announce/add_qun_notice")
-                    body = MultiPartFormDataContent(formData {
-                        append("qid", groupId)
-                        append("bkn", bkn)
-                        append("text", announcement.msg.text)
-                        append("pinned", announcement.pinned)
-                        append(
-                            "settings",
-                            json.encodeToString(
-                                GroupAnnouncementSettings.serializer(),
-                                announcement.settings ?: GroupAnnouncementSettings()
-                            )
-                        )
-                        append("format", "json")
-                    })
-                    headers {
-                        append(
-                            "cookie",
-                            "uin=o${id};" +
-                                    " skey=${client.wLoginSigInfo.sKey.data.encodeToString()};" +
-                                    " p_uin=o${id};" +
-                                    " p_skey=${client.wLoginSigInfo.psKeyMap["qun.qq.com"]?.data?.encodeToString()}; "
-                        )
-                    }
-                }
-            }
-            val jsonObj = json.parseToJsonElement(rep)
-            return jsonObj.jsonObject["new_fid"]?.jsonPrimitive?.content
-                ?: throw throw IllegalStateException("Send Announcement fail group:$groupId msg:${jsonObj.jsonObject["em"]} content:${announcement.msg.text}")
-        }
-
-    @LowLevelApi
-    @MiraiExperimentalApi
-    override suspend fun deleteGroupAnnouncement(bot: Bot, groupId: Long, fid: String) = bot.asQQAndroidBot().run {
-        val data = withContext(network.coroutineContext) {
-            Mirai.Http.post<String> {
-                url("https://web.qun.qq.com/cgi-bin/announce/del_feed")
+            val rep = Mirai.Http.post<String> {
+                url("https://web.qun.qq.com/cgi-bin/announce/add_qun_notice")
                 body = MultiPartFormDataContent(formData {
                     append("qid", groupId)
                     append("bkn", bkn)
-                    append("fid", fid)
+                    append("text", announcement.msg.text)
+                    append("pinned", announcement.pinned)
+                    append(
+                        "settings",
+                        json.encodeToString(
+                            GroupAnnouncementSettings.serializer(),
+                            announcement.settings ?: GroupAnnouncementSettings()
+                        )
+                    )
                     append("format", "json")
                 })
                 headers {
@@ -616,6 +612,31 @@ internal open class MiraiImpl : IMirai, LowLevelApiAccessor {
                                 " p_skey=${client.wLoginSigInfo.psKeyMap["qun.qq.com"]?.data?.encodeToString()}; "
                     )
                 }
+            }
+            val jsonObj = json.parseToJsonElement(rep)
+            return jsonObj.jsonObject["new_fid"]?.jsonPrimitive?.content
+                ?: throw throw IllegalStateException("Send Announcement fail group:$groupId msg:${jsonObj.jsonObject["em"]} content:${announcement.msg.text}")
+        }
+
+    @LowLevelApi
+    @MiraiExperimentalApi
+    override suspend fun deleteGroupAnnouncement(bot: Bot, groupId: Long, fid: String) = bot.asQQAndroidBot().run {
+        val data = Mirai.Http.post<String> {
+            url("https://web.qun.qq.com/cgi-bin/announce/del_feed")
+            body = MultiPartFormDataContent(formData {
+                append("qid", groupId)
+                append("bkn", bkn)
+                append("fid", fid)
+                append("format", "json")
+            })
+            headers {
+                append(
+                    "cookie",
+                    "uin=o${id};" +
+                            " skey=${client.wLoginSigInfo.sKey.data.encodeToString()};" +
+                            " p_uin=o${id};" +
+                            " p_skey=${client.wLoginSigInfo.psKeyMap["qun.qq.com"]?.data?.encodeToString()}; "
+                )
             }
         }
         val jsonObj = json.parseToJsonElement(data)
@@ -711,10 +732,9 @@ internal open class MiraiImpl : IMirai, LowLevelApiAccessor {
             it.messageChain.ensureSequenceIdAvailable()
         }
 
-        val sequenceId = client.atomicNextMessageSequenceId()
 
         val data = message.calculateValidationData(
-            sequenceId = sequenceId,
+            client = client,
             random = Random.nextInt().absoluteValue,
             sendMessageHandler,
             isLong,
@@ -726,7 +746,7 @@ internal open class MiraiImpl : IMirai, LowLevelApiAccessor {
                 client = bot.client,
                 messageData = data,
                 dstUin = sendMessageHandler.targetUin
-            ).sendAndExpect<MultiMsg.ApplyUp.Response>()
+            ).sendAndExpect()
         }
 
         val resId: String
@@ -857,8 +877,7 @@ internal open class MiraiImpl : IMirai, LowLevelApiAccessor {
         dstUin: Long
     ): String {
         bot.asQQAndroidBot().network.run {
-            val response: PttStore.GroupPttDown.Response.DownLoadInfo =
-                PttStore.GroupPttDown(bot.client, groupId, dstUin, md5).sendAndExpect()
+            val response = PttStore.GroupPttDown(bot.client, groupId, dstUin, md5).sendAndExpect()
             return "http://${response.strDomain}${response.downPara.encodeToString()}"
         }
     }
@@ -965,20 +984,43 @@ internal open class MiraiImpl : IMirai, LowLevelApiAccessor {
 
     override suspend fun downloadLongMessage(bot: Bot, resourceId: String): MessageChain {
         return downloadMultiMsgTransmit(bot, resourceId, ResourceKind.LONG_MESSAGE).msg
-            .toMessageChainNoSource(bot.id, 0, MessageSourceKind.GROUP)
+            .toMessageChainNoSource(bot, 0, MessageSourceKind.GROUP)
+            .refineDeep(bot)
     }
 
     override suspend fun downloadForwardMessage(bot: Bot, resourceId: String): List<ForwardMessage.Node> {
-        return downloadMultiMsgTransmit(bot, resourceId, ResourceKind.FORWARD_MESSAGE).msg.map { msg ->
-            ForwardMessage.Node(
-                senderId = msg.msgHead.fromUin,
-                time = msg.msgHead.msgTime,
-                senderName = msg.msgHead.groupInfo?.groupCard
-                    ?: msg.msgHead.fromNick.takeIf { it.isNotEmpty() }
-                    ?: msg.msgHead.fromUin.toString(),
-                messageChain = listOf(msg).toMessageChainNoSource(bot.id, 0, MessageSourceKind.GROUP)
-            )
+        return downloadMultiMsgTransmit(bot, resourceId, ResourceKind.FORWARD_MESSAGE).toForwardMessageNodes(bot)
+    }
+
+    internal open suspend fun MsgTransmit.PbMultiMsgNew.toForwardMessageNodes(
+        bot: Bot,
+        context: RefineContext
+    ): List<ForwardMessage.Node> {
+        return msg.map { it.toNode(bot, context) }
+    }
+
+    internal open suspend fun MsgTransmit.PbMultiMsgTransmit.toForwardMessageNodes(bot: Bot): List<ForwardMessage.Node> {
+        val pbs = this.pbItemList.associate {
+            it.fileName to it.buffer.loadAs(MsgTransmit.PbMultiMsgNew.serializer())
         }
+        val main = pbs["MultiMsg"] ?: return this.msg.map { it.toNode(bot, EmptyRefineContext) }
+        val context = SimpleRefineContext(mutableMapOf())
+        context[ForwardMessageInternal.MsgTransmits] = pbs
+        return main.toForwardMessageNodes(bot, context)
+    }
+
+    protected open suspend fun MsgComm.Msg.toNode(bot: Bot, refineContext: RefineContext): ForwardMessage.Node {
+        val msg = this
+        return ForwardMessage.Node(
+            senderId = msg.msgHead.fromUin,
+            time = msg.msgHead.msgTime,
+            senderName = msg.msgHead.groupInfo?.groupCard
+                ?: msg.msgHead.fromNick.takeIf { it.isNotEmpty() }
+                ?: msg.msgHead.fromUin.toString(),
+            messageChain = listOf(msg)
+                .toMessageChainNoSource(bot, 0, MessageSourceKind.GROUP)
+                .refineDeep(bot, refineContext)
+        )
     }
 
     private suspend fun downloadMultiMsgTransmit(
@@ -1028,7 +1070,7 @@ internal open class MiraiImpl : IMirai, LowLevelApiAccessor {
 
                 val down = longResp.msgDownRsp.single()
                 check(down.result == 0) {
-                    "Message download failed, result=${down.result}, resId=${down.msgResid}, msgContent=${down.msgContent.toUHexString()}"
+                    "Message download failed, result=${down.result}, resId=${down.msgResid.encodeToString()}, msgContent=${down.msgContent.toUHexString()}"
                 }
 
                 val content = down.msgContent.ungzip()

@@ -22,12 +22,12 @@ import net.mamoe.mirai.internal.contact.newAnonymous
 import net.mamoe.mirai.internal.network.protocol.data.proto.ImMsgBody
 import net.mamoe.mirai.internal.network.protocol.data.proto.MsgComm
 import net.mamoe.mirai.internal.network.protocol.data.proto.SourceMsg
-import net.mamoe.mirai.internal.network.protocol.packet.EMPTY_BYTE_ARRAY
 import net.mamoe.mirai.internal.utils._miraiContentToString
 import net.mamoe.mirai.internal.utils.io.serialization.toByteArray
 import net.mamoe.mirai.message.data.MessageChain
 import net.mamoe.mirai.message.data.MessageSourceKind
 import net.mamoe.mirai.message.data.OnlineMessageSource
+import net.mamoe.mirai.utils.EMPTY_BYTE_ARRAY
 import net.mamoe.mirai.utils.encodeBase64
 import net.mamoe.mirai.utils.encodeToString
 import net.mamoe.mirai.utils.mapToIntArray
@@ -48,11 +48,11 @@ internal class OnlineMessageSourceFromFriendImpl(
     } // other client 消息的这个是0
     override val time: Int = msg.first().msgHead.msgTime
     override val originalMessage: MessageChain by lazy {
-        msg.toMessageChainNoSource(bot.id, 0, MessageSourceKind.FRIEND)
+        msg.toMessageChainNoSource(bot, 0, MessageSourceKind.FRIEND)
     }
     override val sender: Friend = bot.getFriendOrFail(msg.first().msgHead.fromUin)
 
-    private val jceData by lazy { msg.toJceDataPrivate(internalIds) }
+    private val jceData: ImMsgBody.SourceMsg by lazy { msg.toJceDataPrivate(internalIds) }
 
     override fun toJceData(): ImMsgBody.SourceMsg = jceData
 }
@@ -72,11 +72,11 @@ internal class OnlineMessageSourceFromStrangerImpl(
     } // other client 消息的这个是0
     override val time: Int = msg.first().msgHead.msgTime
     override val originalMessage: MessageChain by lazy {
-        msg.toMessageChainNoSource(bot.id, 0, MessageSourceKind.STRANGER)
+        msg.toMessageChainNoSource(bot, 0, MessageSourceKind.STRANGER)
     }
     override val sender: Stranger = bot.getStrangerOrFail(msg.first().msgHead.fromUin)
 
-    private val jceData by lazy { msg.toJceDataPrivate(internalIds) }
+    private val jceData: ImMsgBody.SourceMsg by lazy { msg.toJceDataPrivate(internalIds) }
 
     override fun toJceData(): ImMsgBody.SourceMsg = jceData
 }
@@ -133,13 +133,13 @@ internal class OnlineMessageSourceFromTempImpl(
     override val ids: IntArray get() = sequenceIds//
     override val time: Int = msg.first().msgHead.msgTime
     override val originalMessage: MessageChain by lazy {
-        msg.toMessageChainNoSource(bot.id, groupIdOrZero = 0, MessageSourceKind.TEMP)
+        msg.toMessageChainNoSource(bot, groupIdOrZero = 0, MessageSourceKind.TEMP)
     }
     override val sender: Member = with(msg.first().msgHead) {
         bot.getGroupOrFail(c2cTmpMsgHead!!.groupUin).getOrFail(fromUin)
     }
 
-    private val jceData by lazy { msg.toJceDataPrivate(internalIds) }
+    private val jceData: ImMsgBody.SourceMsg by lazy { msg.toJceDataPrivate(internalIds) }
     override fun toJceData(): ImMsgBody.SourceMsg = jceData
 }
 
@@ -157,7 +157,7 @@ internal class OnlineMessageSourceFromGroupImpl(
     override val ids: IntArray get() = sequenceIds
     override val time: Int = msg.first().msgHead.msgTime
     override val originalMessage: MessageChain by lazy {
-        msg.toMessageChainNoSource(bot.id, groupIdOrZero = group.id, MessageSourceKind.GROUP)
+        msg.toMessageChainNoSource(bot, groupIdOrZero = group.id, MessageSourceKind.GROUP)
     }
 
     override val sender: Member by lazy {
@@ -178,7 +178,7 @@ internal class OnlineMessageSourceFromGroupImpl(
         }
     }
 
-    private val jceData by lazy {
+    private val jceData: ImMsgBody.SourceMsg by lazy {
         ImMsgBody.SourceMsg(
             origSeqs = intArrayOf(msg.first().msgHead.msgSeq),
             senderUin = msg.first().msgHead.fromUin,

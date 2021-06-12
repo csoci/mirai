@@ -12,7 +12,7 @@ package net.mamoe.mirai.internal.message
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import net.mamoe.mirai.contact.Contact
+import net.mamoe.mirai.Bot
 import net.mamoe.mirai.message.data.*
 import net.mamoe.mirai.utils.safeCast
 
@@ -22,16 +22,16 @@ internal data class LightAppInternal(
     companion object Key :
         AbstractPolymorphicMessageKey<RichMessage, LightAppInternal>(RichMessage, { it.safeCast() })
 
-    override suspend fun refine(contact: Contact, context: MessageChain): Message {
+    override fun tryRefine(bot: Bot, context: MessageChain, refineContext: RefineContext): Message {
         val struct = tryDeserialize() ?: return LightApp(content)
         struct.run {
             if (meta.music != null) {
                 MusicKind.values().find { it.appId.toInt() == meta.music.appid }?.let { musicType ->
                     meta.music.run {
-                        return RichMessageOrigin(
+                        return MessageOrigin(
                             LightApp(content),
                             null,
-                            RichMessageKind.MUSIC_SHARE
+                            MessageOriginKind.MUSIC_SHARE
                         ) + MusicShare(
                             kind = musicType, title = title, summary = desc,
                             jumpUrl = jumpUrl, pictureUrl = preview, musicUrl = musicUrl, brief = prompt

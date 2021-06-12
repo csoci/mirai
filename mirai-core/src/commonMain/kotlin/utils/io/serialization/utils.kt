@@ -52,7 +52,9 @@ internal fun <T : JceStruct> ByteReadPacket.readJceStruct(
     serializer: DeserializationStrategy<T>,
     length: Int = this.remaining.toInt()
 ): T {
-    return Tars.UTF_8.load(serializer, this.readPacketExact(length))
+    this.readPacketExact(length).use {
+        return Tars.UTF_8.load(serializer, it)
+    }
 }
 
 internal fun <T : JceStruct> BytePacketBuilder.writeJceRequestPacket(
@@ -177,7 +179,8 @@ internal fun <T : ProtoBuf> ByteReadPacket.readProtoBuf(
 ): T = KtProtoBuf.decodeFromByteArray(serializer, this.readBytes(length))
 
 @Suppress("NON_PUBLIC_PRIMARY_CONSTRUCTOR_OF_INLINE_CLASS")
-internal inline class OidbBodyOrFailure<T : ProtoBuf> private constructor(
+@JvmInline
+internal value class OidbBodyOrFailure<T : ProtoBuf> private constructor(
     private val v: Any
 ) {
     internal class Failure(

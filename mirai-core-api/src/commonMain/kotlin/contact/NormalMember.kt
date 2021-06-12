@@ -19,6 +19,7 @@ import net.mamoe.mirai.message.data.Message
 import net.mamoe.mirai.message.data.isContentEmpty
 import net.mamoe.mirai.message.data.toPlainText
 import kotlin.time.Duration
+import kotlin.time.DurationUnit
 import kotlin.time.ExperimentalTime
 
 /**
@@ -65,6 +66,12 @@ public interface NormalMember : Member {
     public val muteTimeRemaining: Int
 
     /**
+     * 当该群员处于禁言状态时返回 `true`.
+     * @since 2.6
+     */
+    public val isMuted: Boolean get() = muteTimeRemaining != 0
+
+    /**
      * 入群时间. 单位为秒.
      *
      * @since 2.1
@@ -101,6 +108,18 @@ public interface NormalMember : Member {
      *
      */
     public suspend fun kick(message: String)
+
+    /**
+     * 给予或移除群成员的管理员权限。
+     *
+     * 此操作需要 Bot 为群主 [MemberPermission.OWNER]
+     *
+     * @param operation true 为给予
+     *
+     * @see MemberPermissionChangeEvent 群成员权限变更事件
+     * @throws PermissionDeniedException 无权限修改时抛出
+     */
+    public suspend fun modifyAdmin(operation: Boolean)
 
     /**
      * 向群成员发送消息.
@@ -142,7 +161,7 @@ public interface NormalMember : Member {
 /**
  * 获取非空群名片或昵称.
  * @return 当 [User] 为 [NormalMember] 时返回 [Member.nameCardOrNick], 否则返回 [Member.nick]
- */
+ */ // Java: NormalMemberKt.getNameCardOrNick(user)
 public val User.nameCardOrNick: String
     get() = when (this) {
         is NormalMember -> this.nameCardOrNick
@@ -161,24 +180,28 @@ public val UserOrBot.nameCardOrNick: String
     }
 
 /**
- * 判断群成员是否处于禁言状态.
- */
-public val NormalMember.isMuted: Boolean
-    get() = muteTimeRemaining != 0 && muteTimeRemaining != 0xFFFFFFFF.toInt()
-
-/**
  * @see Member.mute
  */
 @ExperimentalTime
 public suspend inline fun NormalMember.mute(duration: Duration) {
-    require(duration.inDays <= 30) { "duration must be at most 1 month" }
-    require(duration.inSeconds > 0) { "duration must be greater than 0 second" }
-    this.mute(duration.inSeconds.toInt())
+    require(duration.toDouble(DurationUnit.DAYS) <= 30) { "duration must be at most 1 month" }
+    require(duration.toDouble(DurationUnit.SECONDS) > 0) { "duration must be greater than 0 second" }
+    this.mute(duration.toDouble(DurationUnit.SECONDS).toInt())
 }
 
+@OptIn(ExperimentalTime::class)
 @Suppress("unused")
 @JvmName("mute-fcu0wV4")
 @Deprecated("For binary compatibility", level = DeprecationLevel.HIDDEN)
 public suspend inline fun NormalMember.mute00(duration: Duration) {
     return mute(duration)
 }
+
+/**
+ * 判断群成员是否处于禁言状态.
+ * @suppress 在 2.6 移入了 [NormalMember] 成员函数. 保留二进制兼容.
+ */
+@Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE", "EXTENSION_SHADOWED_BY_MEMBER")
+@kotlin.internal.LowPriorityInOverloadResolution
+public val NormalMember.isMuted: Boolean
+    get() = muteTimeRemaining != 0 && muteTimeRemaining != 0xFFFFFFFF.toInt()

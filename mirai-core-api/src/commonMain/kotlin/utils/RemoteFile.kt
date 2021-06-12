@@ -266,9 +266,20 @@ public interface RemoteFile {
     public suspend fun renameTo(name: String): Boolean
 
     /**
-     * 将这个目录或文件移动到另一个位置. 操作目录或非 Bot 自己上传的文件时需要管理员权限, 无管理员权限时返回 `false`.
+     * 将这个目录或文件移动到 [target] 位置. 操作目录或非 Bot 自己上传的文件时需要管理员权限, 无管理员权限时返回 `false`.
      *
      * [moveTo] 只会操作远程文件, 而不会修改当前 [RemoteFile.path].
+     *
+     * **注意**: 与 [java.io.File] 类似, 这是将当前 [RemoteFile] 移动到作为 [target], 而不是移动成为 [target] 的子文件或目录. 例如:
+     * ```
+     * val root = group.filesRoot
+     * root.resolve("test.txt").moveTo(root) // 错误! 这是在将该文件的路径 "test.txt" 修改为 “/” , 而不是修改为 "/test.txt"
+     * root.resolve("test.txt").moveTo(root.resolve("/")) // 错误! 与上一行相同.
+
+     * root.resolve("/test.txt").moveTo(root.resolve("/test2.txt")) // 正确. 将该文件的路径 "/test.txt" 修改为 “/test2.txt”，相当于重命名文件
+     * ```
+     *
+     * @param target 目标文件位置.
      */
     public suspend fun moveTo(target: RemoteFile): Boolean
 
@@ -276,8 +287,25 @@ public interface RemoteFile {
      * 将这个目录或文件移动到另一个位置. 操作目录或非 Bot 自己上传的文件时需要管理员权限, 无管理员权限时返回 `false`.
      *
      * [moveTo] 只会操作远程文件, 而不会修改当前 [RemoteFile.path].
+     *
+     * **已弃用:** 当 [path] 是绝对路径时, 这个函数运行正常;
+     * 当它是相对路径时, 将会尝试把当前文件移动到 [RemoteFile.path] 下的子路径 [path], 因此总是失败.
+     *
+     * 使用参数为 [RemoteFile] 的 [moveTo] 代替.
+     *
+     * @suppress 在 2.6 弃用. 请使用 [moveTo]
      */
-    public suspend fun moveTo(path: String): Boolean
+    @Deprecated(
+        "Use moveTo(RemoteFile) instead.",
+        replaceWith = ReplaceWith("this.moveTo(this.resolveSibling(path))"),
+        level = DeprecationLevel.WARNING
+    )
+    public suspend fun moveTo(path: String): Boolean {
+        // Impl notes:
+        // if `path` is absolute, this works as intended.
+        // if not, `resolve(path)` will be a child path from this dir and fails always.
+        return moveTo(resolve(path))
+    }
 
     /**
      * 创建目录. 目录已经存在或无管理员权限时返回 `false`.
@@ -372,7 +400,7 @@ public interface RemoteFile {
             public fun SendChannel<Long>.asProgressionCallback(closeOnFinish: Boolean = true): ProgressionCallback {
                 return object : ProgressionCallback {
                     override fun onProgression(file: RemoteFile, resource: ExternalResource, downloadedSize: Long) {
-                        offer(downloadedSize)
+                        trySend(downloadedSize)
                     }
 
                     override fun onSuccess(file: RemoteFile, resource: ExternalResource) {
@@ -393,14 +421,33 @@ public interface RemoteFile {
      * 上传后不会发送文件消息, 即官方客户端只能在 "群文件" 中查看文件.
      * 可通过 [toMessage] 获取到文件消息并通过 [Group.sendMessage] 发送, 或使用 [uploadAndSend].
      *
-     * 若 [RemoteFile.id] 存在且旧文件存在, 将会覆盖旧文件.
-     * 即使用 [resolve] 或 [resolveSibling] 获取到的 [RemoteFile] 的 [upload] 总是上传一个新文件,
-     * 而使用 [resolveById] 或 [listFiles] 获取到的总是覆盖旧文件, 当旧文件已在远程删除时上传一个新文件.
+     * ## 已弃用
+     *
+     * 使用 [sendFile] 代替. 本函数会上传文件但不会发送文件消息.
+     * 不发送文件消息就导致其他操作都几乎不能完成, 而且经反馈, 用户通常会忘记后续的 [RemoteFile.toMessage] 操作.
+     * 本函数造成了很大的不必要的迷惑, 故以既上传又发送消息的, 与官方客户端行为相同的 [sendFile] 代替.
+     *
+     * 相关问题: [#1250: 群文件在上传后 toRemoteFile 返回 null](https://github.com/mamoe/mirai/issues/1250)
+     *
+     *
+     * **注意**: [resource] 仅表示资源数据, 而不带有文件名属性.
+     * 与 [java.io.File] 类似, [upload] 是将 [resource] 上传成为 [this][RemoteFile], 而不是上传成为 [this][RemoteFile] 的子文件. 示例:
+     * ```
+     * group.filesRoot.upload(resource) // 错误! 这是在把资源上传成为根目录.
+     * group.filesRoot.resolve("/").upload(resource) // 错误! 与上一句相同, 这是在把资源上传成为根目录.
+     *
+     * val root = group.filesRoot
+     * root.resolve("test.txt").upload(resource) // 正确. 把资源上传成为根目录下的 "test.txt".
+     * root.resolve("/test.txt").upload(resource) // 正确. 与上一句相同, 把资源上传成为根目录下的 "test.txt".
+     * ```
      *
      * @param resource 需要上传的文件资源. 无论上传是否成功, 本函数都不会关闭 [resource].
      * @param callback 进度回调
      * @throws IllegalStateException 该文件上传失败或权限不足时抛出
      */
+    @Deprecated(
+        "Use uploadAndSend instead.", ReplaceWith("this.uploadAndSend(resource, callback)"), DeprecationLevel.WARNING
+    ) // deprecated since 2.7-M1
     public suspend fun upload(
         resource: ExternalResource,
         callback: ProgressionCallback? = null
@@ -408,14 +455,26 @@ public interface RemoteFile {
 
     /**
      * 上传文件到 [RemoteFile.path] 表示的路径.
+     * ## 已弃用
+     * 阅读 [upload] 获取更多信息
      * @see upload
      */
+    @Suppress("DEPRECATION")
+    @Deprecated(
+        "Use uploadAndSend instead.", ReplaceWith("this.uploadAndSend(resource)"), DeprecationLevel.WARNING
+    )  // deprecated since 2.7-M1
     public suspend fun upload(resource: ExternalResource): FileMessage = upload(resource, null)
 
     /**
      * 上传文件.
+     * ## 已弃用
+     * 阅读 [upload] 获取更多信息
      * @see upload
      */
+    @Suppress("DEPRECATION")
+    @Deprecated(
+        "Use uploadAndSend instead.", ReplaceWith("this.uploadAndSend(file, callback)"), DeprecationLevel.WARNING
+    ) // deprecated since 2.7-M1
     public suspend fun upload(
         file: File,
         callback: ProgressionCallback? = null
@@ -423,12 +482,23 @@ public interface RemoteFile {
 
     /**
      * 上传文件.
+     * ## 已弃用
+     * 阅读 [upload] 获取更多信息
      * @see upload
      */
+    @Suppress("DEPRECATION")
+    @Deprecated(
+        "Use sendFile instead.", ReplaceWith("this.uploadAndSend(file)"), DeprecationLevel.WARNING
+    ) // deprecated since 2.7-M1
     public suspend fun upload(file: File): FileMessage = file.toExternalResource().use { upload(it) }
 
     /**
      * 上传文件并发送文件消息.
+     *
+     * 若 [RemoteFile.id] 存在且旧文件存在, 将会覆盖旧文件.
+     * 即使用 [resolve] 或 [resolveSibling] 获取到的 [RemoteFile] 的 [upload] 总是上传一个新文件,
+     * 而使用 [resolveById] 或 [listFiles] 获取到的总是覆盖旧文件, 当旧文件已在远程删除时上传一个新文件.
+     *
      * @param resource 需要上传的文件资源. 无论上传是否成功, 本函数都不会关闭 [resource].
      * @see upload
      */
@@ -484,35 +554,58 @@ public interface RemoteFile {
 
         /**
          * 上传文件并获取文件消息, 但不发送.
+         *
+         * ## 已弃用
+         * 在 [upload] 获取更多信息
+         *
          * @param path 远程路径. 起始字符为 '/'. 如 '/foo/bar.txt'
          * @param resource 需要上传的文件资源. 无论上传是否成功, 本函数都不会关闭 [resource].
          * @see RemoteFile.upload
          */
         @JvmStatic
         @JvmOverloads
+        @Deprecated(
+            "Use sendFile instead.",
+            ReplaceWith(
+                "this.sendFile(path, resource, callback)",
+                "net.mamoe.mirai.utils.RemoteFile.Companion.sendFile"
+            ),
+            level = DeprecationLevel.WARNING
+        ) // deprecated since 2.7-M1
         public suspend fun FileSupported.uploadFile(
             path: String,
             resource: ExternalResource,
             callback: ProgressionCallback? = null
-        ): FileMessage = this.filesRoot.resolve(path).upload(resource, callback)
+        ): FileMessage = @Suppress("DEPRECATION") this.filesRoot.resolve(path).upload(resource, callback)
 
         /**
          * 上传文件并获取文件消息, 但不发送.
+         * ## 已弃用
+         * 阅读 [uploadFile] 获取更多信息.
+         *
          * @param path 远程路径. 起始字符为 '/'. 如 '/foo/bar.txt'
          * @see RemoteFile.upload
          */
         @JvmStatic
         @JvmOverloads
+        @Deprecated(
+            "Use sendFile instead.",
+            ReplaceWith(
+                "this.sendFile(path, file, callback)",
+                "net.mamoe.mirai.utils.RemoteFile.Companion.sendFile"
+            ),
+            level = DeprecationLevel.WARNING
+        ) // deprecated since 2.7-M1
         public suspend fun FileSupported.uploadFile(
             path: String,
             file: File,
             callback: ProgressionCallback? = null
-        ): FileMessage = this.filesRoot.resolve(path).upload(file, callback)
+        ): FileMessage = @Suppress("DEPRECATION") this.filesRoot.resolve(path).upload(file, callback)
 
         /**
          * 上传文件并发送文件消息到相关 [FileSupported].
          * @param resource 需要上传的文件资源. 无论上传是否成功, 本函数都不会关闭 [resource].
-         * @see RemoteFile.upload
+         * @see RemoteFile.uploadAndSend
          */
         @JvmStatic
         @JvmOverloads
@@ -520,11 +613,13 @@ public interface RemoteFile {
             path: String,
             resource: ExternalResource,
             callback: ProgressionCallback? = null
-        ): MessageReceipt<C> = this.filesRoot.resolve(path).upload(resource, callback).sendTo(this)
+        ): MessageReceipt<C> =
+            @Suppress("DEPRECATION")
+            this.filesRoot.resolve(path).upload(resource, callback).sendTo(this)
 
         /**
          * 上传文件并发送文件消息到相关 [FileSupported].
-         * @see RemoteFile.upload
+         * @see RemoteFile.uploadAndSend
          */
         @JvmStatic
         @JvmOverloads
@@ -532,6 +627,8 @@ public interface RemoteFile {
             path: String,
             file: File,
             callback: ProgressionCallback? = null
-        ): MessageReceipt<C> = this.filesRoot.resolve(path).upload(file, callback).sendTo(this)
+        ): MessageReceipt<C> =
+            @Suppress("DEPRECATION")
+            this.filesRoot.resolve(path).upload(file, callback).sendTo(this)
     }
 }

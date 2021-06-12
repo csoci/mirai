@@ -1,5 +1,5 @@
 /*
- * Copyright 2019-2020 Mamoe Technologies and contributors.
+ * Copyright 2019-2021 Mamoe Technologies and contributors.
  *
  *  此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
  *  Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
@@ -11,8 +11,8 @@ package net.mamoe.mirai.internal.network.protocol.data.proto
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.protobuf.ProtoNumber
-import net.mamoe.mirai.internal.network.protocol.packet.EMPTY_BYTE_ARRAY
 import net.mamoe.mirai.internal.utils.io.ProtoBuf
+import net.mamoe.mirai.utils.EMPTY_BYTE_ARRAY
 
 @Serializable
 internal class Cmd0x352 : ProtoBuf {
@@ -100,7 +100,7 @@ internal class Cmd0x352 : ProtoBuf {
         @ProtoNumber(2) @JvmField val msgTryupImgReq: List<TryUpImgReq> = emptyList(),// optional
         @ProtoNumber(3) @JvmField val msgGetimgUrlReq: List<GetImgUrlReq> = emptyList(),// optional
         @ProtoNumber(4) @JvmField val msgDelImgReq: List<DelImgReq> = emptyList(),
-        @ProtoNumber(10) @JvmField val netType: Int = 3// 数据网络=5
+        @ProtoNumber(10) @JvmField val netType: Int = 0// 数据网络=5, wifi=3
     ) : ProtoBuf
 
     @Serializable
@@ -115,11 +115,11 @@ internal class Cmd0x352 : ProtoBuf {
 
     @Serializable
     internal class TryUpImgReq(
-        @ProtoNumber(1) @JvmField val srcUin: Int,
-        @ProtoNumber(2) @JvmField val dstUin: Int,
+        @ProtoNumber(1) @JvmField val srcUin: Long,
+        @ProtoNumber(2) @JvmField val dstUin: Long,
         @ProtoNumber(3) @JvmField val fileId: Int = 0,//从0开始的自增数？貌似有一个连接就要自增1, 但是又会重置回0
         @ProtoNumber(4) @JvmField val fileMd5: ByteArray,
-        @ProtoNumber(5) @JvmField val fileSize: Int,
+        @ProtoNumber(5) @JvmField val fileSize: Long,
         @ProtoNumber(6) @JvmField val fileName: String,//默认为md5+".jpg"
         @ProtoNumber(7) @JvmField val srcTerm: Int = 5,
         @ProtoNumber(8) @JvmField val platformType: Int = 9,

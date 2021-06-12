@@ -9,15 +9,11 @@
 
 package net.mamoe.mirai.internal.network
 
+import kotlinx.io.core.BytePacketBuilder
 import kotlinx.io.core.ByteReadPacket
-import kotlinx.io.core.Input
-import kotlinx.io.core.readBytes
-import kotlinx.io.core.readUShort
-import net.mamoe.mirai.internal.network.getRandomByteArray
-import net.mamoe.mirai.internal.network.protocol.packet.PacketLogger
-import net.mamoe.mirai.internal.utils.crypto.TEA
-import net.mamoe.mirai.network.LoginFailedException
-import net.mamoe.mirai.network.NoServerAvailableException
+import kotlinx.io.core.writeFully
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import net.mamoe.mirai.utils.*
 
 
@@ -43,6 +39,7 @@ internal class WFastLoginInfo(
     }
 }
 
+@Serializable
 internal class WLoginSimpleInfo(
     val uin: Long, // uin
     val imgType: ByteArray,
@@ -55,6 +52,7 @@ internal class WLoginSimpleInfo(
     }
 }
 
+@Serializable
 internal class LoginExtraData(
     val uin: Long,
     val ip: ByteArray,
@@ -66,13 +64,25 @@ internal class LoginExtraData(
     }
 }
 
-internal class WLoginSigInfo(
+internal fun BytePacketBuilder.writeLoginExtraData(loginExtraData: LoginExtraData) {
+    loginExtraData.run {
+        writeLong(uin)
+        writeByte(ip.size.toByte())
+        writeFully(ip)
+        writeInt(time)
+        writeInt(version)
+    }
+}
+
+@Suppress("ArrayInDataClass") // for `copy`
+@Serializable
+internal data class WLoginSigInfo(
     val uin: Long,
-    val encryptA1: ByteArray?, // sigInfo[0]
+    var encryptA1: ByteArray?, // sigInfo[0]
     /**
      * WARNING, please check [QQAndroidClient.tlv16a]
      */
-    val noPicSig: ByteArray?, // sigInfo[1]
+    var noPicSig: ByteArray?, // sigInfo[1]
 
     val simpleInfo: WLoginSimpleInfo,
 
@@ -82,77 +92,55 @@ internal class WLoginSigInfo(
     var tgt: ByteArray,
     var a2CreationTime: Long,
     var tgtKey: ByteArray,
-    var userStSig: UserStSig,
+    var userStSig: KeyWithCreationTime,
     /**
      * TransEmpPacket 加密使用
      */
     var userStKey: ByteArray,
-    var userStWebSig: UserStWebSig,
-    var userA5: UserA5,
-    var userA8: UserA8,
-    var lsKey: LSKey,
-    var sKey: SKey,
-    var userSig64: UserSig64,
+    var userStWebSig: KeyWithExpiry,
+    var userA5: KeyWithCreationTime,
+    var userA8: KeyWithExpiry,
+    var lsKey: KeyWithExpiry,
+    var sKey: KeyWithExpiry,
+    var userSig64: KeyWithCreationTime,
     var openId: ByteArray,
-    var openKey: OpenKey,
-    var vKey: VKey,
-    var accessToken: AccessToken,
-    var d2: D2,
+    var openKey: KeyWithCreationTime,
+    var vKey: KeyWithExpiry,
+    var accessToken: KeyWithCreationTime,
+    var d2: KeyWithExpiry,
     var d2Key: ByteArray,
-    var sid: Sid,
-    var aqSig: AqSig,
+    var sid: KeyWithExpiry,
+    var aqSig: KeyWithCreationTime,
     var psKeyMap: PSKeyMap,
-    var pt4TokenMap: Pt4TokenMap,
+    var pt4TokenMap: MutableMap<String, KeyWithExpiry> = mutableMapOf(), // = Pt4TokenMap  maybe compiler bug
     var superKey: ByteArray,
     var payToken: ByteArray,
     var pf: ByteArray,
     var pfKey: ByteArray,
     var da2: ByteArray,
     // val pt4Token: ByteArray,
-    var wtSessionTicket: WtSessionTicket,
+    var wtSessionTicket: KeyWithCreationTime,
     var wtSessionTicketKey: ByteArray,
-    var deviceToken: ByteArray
+    var deviceToken: ByteArray,
+    var encryptedDownloadSession: EncryptedDownloadSession? = null
 ) {
+
+    //图片加密下载
+    //是否加密从bigdatachannel处得知
+    @Serializable
+    internal class EncryptedDownloadSession(
+        val appId: Long,//1600000226L
+        val stKey: ByteArray,
+        val stSig: ByteArray
+    )
+
     override fun toString(): String {
         return "WLoginSigInfo(uin=$uin, encryptA1=${encryptA1?.toUHexString()}, noPicSig=${noPicSig?.toUHexString()}, simpleInfo=$simpleInfo, appPri=$appPri, a2ExpiryTime=$a2ExpiryTime, loginBitmap=$loginBitmap, tgt=${tgt.toUHexString()}, a2CreationTime=$a2CreationTime, tgtKey=${tgtKey.toUHexString()}, userStSig=$userStSig, userStKey=${userStKey.toUHexString()}, userStWebSig=$userStWebSig, userA5=$userA5, userA8=$userA8, lsKey=$lsKey, sKey=$sKey, userSig64=$userSig64, openId=${openId.toUHexString()}, openKey=$openKey, vKey=$vKey, accessToken=$accessToken, d2=$d2, d2Key=${d2Key.toUHexString()}, sid=$sid, aqSig=$aqSig, psKey=$psKeyMap, superKey=${superKey.toUHexString()}, payToken=${payToken.toUHexString()}, pf=${pf.toUHexString()}, pfKey=${pfKey.toUHexString()}, da2=${da2.toUHexString()}, wtSessionTicket=$wtSessionTicket, wtSessionTicketKey=${wtSessionTicketKey.toUHexString()}, deviceToken=${deviceToken.toUHexString()})"
     }
 }
 
-internal class UserStSig(data: ByteArray, creationTime: Long) : KeyWithCreationTime(data, creationTime)
-internal class LSKey(data: ByteArray, creationTime: Long, expireTime: Long) :
-    KeyWithExpiry(data, creationTime, expireTime)
-
-internal class UserStWebSig(data: ByteArray, creationTime: Long, expireTime: Long) :
-    KeyWithExpiry(data, creationTime, expireTime)
-
-internal class UserA8(data: ByteArray, creationTime: Long, expireTime: Long) :
-    KeyWithExpiry(data, creationTime, expireTime)
-
-internal class UserA5(data: ByteArray, creationTime: Long) : KeyWithCreationTime(data, creationTime)
-internal class SKey(data: ByteArray, creationTime: Long, expireTime: Long) :
-    KeyWithExpiry(data, creationTime, expireTime)
-
-internal class UserSig64(data: ByteArray, creationTime: Long) : KeyWithCreationTime(data, creationTime)
-internal class OpenKey(data: ByteArray, creationTime: Long) : KeyWithCreationTime(data, creationTime)
-internal class VKey(data: ByteArray, creationTime: Long, expireTime: Long) :
-    KeyWithExpiry(data, creationTime, expireTime)
-
-internal class AccessToken(data: ByteArray, creationTime: Long) : KeyWithCreationTime(data, creationTime)
-internal class D2(data: ByteArray, creationTime: Long, expireTime: Long) : KeyWithExpiry(data, creationTime, expireTime)
-internal class Sid(data: ByteArray, creationTime: Long, expireTime: Long) :
-    KeyWithExpiry(data, creationTime, expireTime)
-
-internal class AqSig(data: ByteArray, creationTime: Long) : KeyWithCreationTime(data, creationTime)
-
-internal class Pt4Token(data: ByteArray, creationTime: Long, expireTime: Long) :
-    KeyWithExpiry(data, creationTime, expireTime)
-
-internal typealias PSKeyMap = MutableMap<String, PSKey>
-internal typealias Pt4TokenMap = MutableMap<String, Pt4Token>
-
-internal fun Input.readUShortLVString(): String = kotlinx.io.core.String(this.readUShortLVByteArray())
-
-internal fun Input.readUShortLVByteArray(): ByteArray = this.readBytes(this.readUShort().toInt())
+internal typealias PSKeyMap = MutableMap<String, KeyWithExpiry>
+internal typealias Pt4TokenMap = MutableMap<String, KeyWithExpiry>
 
 internal fun parsePSKeyMapAndPt4TokenMap(
     data: ByteArray,
@@ -168,20 +156,16 @@ internal fun parsePSKeyMapAndPt4TokenMap(
             val pt4token = readUShortLVByteArray()
 
             when {
-                psKey.isNotEmpty() -> outPSKeyMap[domain] = PSKey(psKey, creationTime, expireTime)
-                pt4token.isNotEmpty() -> outPt4TokenMap[domain] = Pt4Token(pt4token, creationTime, expireTime)
+                psKey.isNotEmpty() -> outPSKeyMap[domain] = KeyWithExpiry(psKey, creationTime, expireTime)
+                pt4token.isNotEmpty() -> outPt4TokenMap[domain] = KeyWithExpiry(pt4token, creationTime, expireTime)
             }
         }
     }
 
-internal class PSKey(data: ByteArray, creationTime: Long, expireTime: Long) :
-    KeyWithExpiry(data, creationTime, expireTime)
-
-internal class WtSessionTicket(data: ByteArray, creationTime: Long) : KeyWithCreationTime(data, creationTime)
-
+@Serializable
 internal open class KeyWithExpiry(
-    data: ByteArray,
-    creationTime: Long,
+    @SerialName("data1") override val data: ByteArray,
+    @SerialName("creationTime1") override val creationTime: Long,
     val expireTime: Long
 ) : KeyWithCreationTime(data, creationTime) {
     override fun toString(): String {
@@ -189,72 +173,12 @@ internal open class KeyWithExpiry(
     }
 }
 
+@Serializable
 internal open class KeyWithCreationTime(
-    val data: ByteArray,
-    val creationTime: Long
+    open val data: ByteArray,
+    open val creationTime: Long
 ) {
     override fun toString(): String {
         return "KeyWithCreationTime(data=${data.toUHexString()}, creationTime=$creationTime)"
     }
 }
-
-internal suspend inline fun QQAndroidClient.useNextServers(crossinline block: suspend (host: String, port: Int) -> Unit) {
-    if (bot.serverList.isEmpty()) {
-        bot.bdhSyncer.loadServerListFromCache()
-        if (bot.serverList.isEmpty()) {
-            bot.serverList.addAll(DefaultServerList)
-        }
-    }
-    retryCatchingExceptions(bot.serverList.size, except = LoginFailedException::class) l@{
-        val pair = bot.serverList[0]
-        runCatchingExceptions {
-            block(pair.first, pair.second)
-            return@l
-        }.getOrElse {
-            bot.serverList.remove(pair)
-            if (it !is LoginFailedException) {
-                // 不要重复打印.
-                bot.logger.warning(it)
-            }
-            throw it
-        }
-    }.getOrElse {
-        if (it is LoginFailedException) {
-            throw it
-        }
-        bot.serverList.addAll(DefaultServerList)
-        throw NoServerAvailableException(it)
-    }
-}
-
-
-@Suppress("RemoveRedundantQualifierName") // bug
-internal fun generateTgtgtKey(guid: ByteArray): ByteArray =
-    (getRandomByteArray(16) + guid).md5()
-
-internal inline fun <R> QQAndroidClient.tryDecryptOrNull(
-    data: ByteArray,
-    size: Int = data.size,
-    mapper: (ByteArray) -> R
-): R? {
-    keys.forEach { (key, value) ->
-        kotlin.runCatching {
-            return mapper(TEA.decrypt(data, value, size).also { PacketLogger.verbose { "成功使用 $key 解密" } })
-        }
-    }
-    return null
-}
-
-internal fun QQAndroidClient.allKeys() = mapOf(
-    "16 zero" to ByteArray(16),
-    "D2 key" to wLoginSigInfo.d2Key,
-    "wtSessionTicketKey" to wLoginSigInfo.wtSessionTicketKey,
-    "userStKey" to wLoginSigInfo.userStKey,
-    "tgtgtKey" to tgtgtKey,
-    "tgtKey" to wLoginSigInfo.tgtKey,
-    "deviceToken" to wLoginSigInfo.deviceToken,
-    "shareKeyCalculatedByConstPubKey" to ecdh.keyPair.initialShareKey
-    //"t108" to wLoginSigInfo.t1,
-    //"t10c" to t10c,
-    //"t163" to t163
-)

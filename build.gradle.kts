@@ -34,7 +34,6 @@ plugins {
     kotlin("plugin.serialization") version Versions.kotlinCompiler
 //    id("org.jetbrains.dokka") version Versions.dokka
     id("net.mamoe.kotlin-jvm-blocking-bridge") version Versions.blockingBridge
-    id("com.jfrog.bintray") // version Versions.bintray
     id("com.gradle.plugin-publish") version "0.12.0" apply false
 }
 
@@ -52,10 +51,11 @@ configure<kotlinx.validation.ApiValidationExtension> {
 
     ignoredPackages.add("net.mamoe.mirai.internal")
     ignoredPackages.add("net.mamoe.mirai.console.internal")
-    nonPublicMarkers.add("net.mamoe.mirai.MiraiInternalApi")
+    nonPublicMarkers.add("net.mamoe.mirai.utils.MiraiInternalApi")
+    nonPublicMarkers.add("net.mamoe.mirai.utils.MiraiInternalFile")
     nonPublicMarkers.add("net.mamoe.mirai.console.utils.ConsoleInternalApi")
     nonPublicMarkers.add("net.mamoe.mirai.console.utils.ConsoleExperimentalApi")
-    nonPublicMarkers.add("net.mamoe.mirai.MiraiExperimentalApi")
+    nonPublicMarkers.add("net.mamoe.mirai.utils.MiraiExperimentalApi")
 }
 
 GpgSigner.setup(project)
@@ -70,6 +70,7 @@ tasks.register("publishMiraiCoreArtifactsToMavenLocal") {
 }
 
 analyzes.CompiledCodeVerify.run { registerAllVerifyTasks() }
+postktcompile.PostKotlinCompile.run { registerForAll(rootProject) }
 
 allprojects {
     group = "net.mamoe"
@@ -79,8 +80,6 @@ allprojects {
         // mavenLocal() // cheching issue cause compiler exception
         // maven(url = "https://mirrors.huaweicloud.com/repository/maven")
         jcenter()
-        maven(url = "https://dl.bintray.com/kotlin/kotlin-eap")
-        maven(url = "https://kotlin.bintray.com/kotlinx")
         google()
         mavenCentral()
     }
@@ -206,39 +205,6 @@ fun Project.configureMppShadow() {
                 "Implementation-Version" to this.version.toString()
             )
         }*/
-        }
-    }
-
-    fun Project.configureEncoding() {
-        tasks.withType(JavaCompile::class.java) {
-            options.encoding = "UTF8"
-        }
-    }
-
-    fun Project.configureKotlinTestSettings() {
-        tasks.withType(Test::class) {
-            useJUnitPlatform()
-        }
-        when {
-            isKotlinJvmProject -> {
-                dependencies {
-                    testImplementation(kotlin("test-junit5"))
-
-                    testApi("org.junit.jupiter:junit-jupiter-api:5.2.0")
-                    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.2.0")
-                }
-            }
-            isKotlinMpp -> {
-                kotlinSourceSets?.forEach { sourceSet ->
-                    if (sourceSet.name.endsWith("test", ignoreCase = true)) {
-                        sourceSet.dependencies {
-                            api(kotlin("test-junit5"))
-                            api("org.junit.jupiter:junit-jupiter-api:5.2.0")
-                            runtimeOnly("org.junit.jupiter:junit-jupiter-engine:5.2.0")
-                        }
-                    }
-                }
-            }
         }
     }
 }

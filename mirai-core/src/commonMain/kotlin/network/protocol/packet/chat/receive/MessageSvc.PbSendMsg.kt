@@ -35,6 +35,7 @@ import net.mamoe.mirai.internal.utils.io.serialization.readProtoBuf
 import net.mamoe.mirai.internal.utils.io.serialization.writeProtoBuf
 import net.mamoe.mirai.message.data.*
 import net.mamoe.mirai.utils.currentTimeSeconds
+import net.mamoe.mirai.utils.getRandomUnsignedInt
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.contracts.InvocationKind
 import kotlin.contracts.contract
@@ -83,9 +84,9 @@ internal object MessageSvcPbSendMsg : OutgoingPacketFactory<MessageSvcPbSendMsg.
                     txtAdd = true
                     last.add(element)
                 } else {
-                    val splitted = element.content.chunked(80)
+                    val split = element.content.chunked(80)
                     flush()
-                    splitted.forEach { results.add(PlainText(it).toMessageChain()) }
+                    split.forEach { results.add(PlainText(it).toMessageChain()) }
                 }
             } else {
                 last.add(element)
@@ -116,11 +117,11 @@ internal object MessageSvcPbSendMsg : OutgoingPacketFactory<MessageSvcPbSendMsg.
         else listOf(message)
 
         val response = mutableListOf<OutgoingPacket>()
-        val div = if (fragmented.size == 1) 0 else Random.nextInt().absoluteValue
+        val div = if (fragmented.size == 1) 0 else getRandomUnsignedInt()
         val pkgNum = fragmented.size
 
         val seqIds = sequenceIdsInitializer(pkgNum)
-        val randIds0 = IntArray(pkgNum) { Random.nextInt().absoluteValue }
+        val randIds0 = IntArray(pkgNum) { getRandomUnsignedInt() }
         sequenceIds.set(seqIds)
         randIds.set(randIds0)
         postInit()
@@ -182,7 +183,7 @@ internal object MessageSvcPbSendMsg : OutgoingPacketFactory<MessageSvcPbSendMsg.
             sequenceIds = sequenceIds,
             randIds = randIds,
             sequenceIdsInitializer = { size ->
-                IntArray(size) { client.nextFriendSeq() }
+                IntArray(size) { client.atomicNextMessageSequenceId() }
             },
             postInit = {
                 source(
@@ -299,9 +300,8 @@ internal object MessageSvcPbSendMsg : OutgoingPacketFactory<MessageSvcPbSendMsg.
         client: QQAndroidClient,
         targetMember: Member,
         message: MessageChain,
-        fragmented: Boolean,
         source: OnlineMessageSourceToTempImpl
-    ): OutgoingPacket = buildOutgoingUniPacket(client) {
+    ) = buildOutgoingUniPacket(client) {
         writeProtoBuf(
             MsgSvc.PbSendMsgReq.serializer(), MsgSvc.PbSendMsgReq(
                 routingHead = MsgSvc.RoutingHead(
@@ -380,7 +380,7 @@ internal object MessageSvcPbSendMsg : OutgoingPacketFactory<MessageSvcPbSendMsg.
             sequenceIds = sequenceIds,
             randIds = randIds,
             sequenceIdsInitializer = { size ->
-                IntArray(size) { client.nextFriendSeq() }
+                IntArray(size) { client.atomicNextMessageSequenceId() }
             },
             postInit = {
                 randIds.get().forEach { id ->
@@ -466,6 +466,7 @@ internal object MessageSvcPbSendMsg : OutgoingPacketFactory<MessageSvcPbSendMsg.
     }
 }
 
+@Suppress("UNUSED_PARAMETER")
 internal inline fun MessageSvcPbSendMsg.createToTemp(
     client: QQAndroidClient,
     member: Member,
@@ -489,7 +490,6 @@ internal inline fun MessageSvcPbSendMsg.createToTemp(
         client,
         member,
         message,
-        fragmented,
         source
     ).let { listOf(it) }
 }

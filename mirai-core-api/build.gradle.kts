@@ -19,7 +19,6 @@ plugins {
     id("net.mamoe.kotlin-jvm-blocking-bridge")
 
     `maven-publish`
-    id("com.jfrog.bintray")
 }
 
 description = "Mirai API module"
@@ -54,7 +53,6 @@ kotlin {
         val commonMain by getting {
             dependencies {
                 implementation(project(":mirai-core-utils"))
-                api(kotlin("serialization"))
                 api(kotlin("reflect"))
 
                 api(`kotlinx-serialization-core`)
@@ -101,18 +99,20 @@ kotlin {
     }
 }
 
-tasks.register("checkAndroidApiLevel") {
-    doFirst {
-        analyzes.AndroidApiLevelCheck.check(
-            buildDir.resolve("classes/kotlin/android/main"),
-            project.property("mirai.android.target.api.level")!!.toString().toInt(),
-            project
-        )
+if (isAndroidSDKAvailable) {
+    tasks.register("checkAndroidApiLevel") {
+        doFirst {
+            analyzes.AndroidApiLevelCheck.check(
+                buildDir.resolve("classes/kotlin/android/main"),
+                project.property("mirai.android.target.api.level")!!.toString().toInt(),
+                project
+            )
+        }
+        group = "verification"
+        this.mustRunAfter("androidMainClasses")
     }
-    group = "verification"
-    this.mustRunAfter("androidMainClasses")
+    tasks.getByName("androidTest").dependsOn("checkAndroidApiLevel")
 }
-tasks.getByName("androidTest").dependsOn("checkAndroidApiLevel")
 
 fun org.jetbrains.kotlin.gradle.plugin.KotlinDependencyHandler.implementation1(dependencyNotation: String) =
     implementation(dependencyNotation) {

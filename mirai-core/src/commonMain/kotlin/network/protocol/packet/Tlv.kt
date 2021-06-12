@@ -12,10 +12,8 @@
 package net.mamoe.mirai.internal.network.protocol.packet
 
 import kotlinx.io.core.*
-import net.mamoe.mirai.internal.network.LoginExtraData
-import net.mamoe.mirai.internal.network.QQAndroidClient
+import net.mamoe.mirai.internal.network.*
 import net.mamoe.mirai.internal.network.protocol.LoginType
-import net.mamoe.mirai.internal.network.writeLoginExtraData
 import net.mamoe.mirai.internal.utils.GuidSource
 import net.mamoe.mirai.internal.utils.MacOrAndroidIdChangeFlag
 import net.mamoe.mirai.internal.utils.NetworkType
@@ -47,7 +45,8 @@ internal fun TlvMap.smartToString(leadingLineBreak: Boolean = true, sorted: Bool
 /**
  * 显式表示一个 [ByteArray] 是一个 tlv 的 body
  */
-internal inline class Tlv(val value: ByteArray)
+@JvmInline
+internal value class Tlv(val value: ByteArray)
 
 internal fun BytePacketBuilder.t1(uin: Long, ip: ByteArray) {
     require(ip.size == 4) { "ip.size must == 4" }
@@ -222,6 +221,16 @@ internal fun BytePacketBuilder.t100(
     } shouldEqualsTo 22
 }
 
+internal fun BytePacketBuilder.t10a(
+    tgt: ByteArray,
+) {
+    writeShort(0x10a)
+    writeShortLVPacket {
+        writeFully(tgt)
+    }
+}
+
+
 internal fun BytePacketBuilder.t107(
     picType: Int,
     capType: Int = 0,
@@ -323,6 +332,15 @@ internal fun BytePacketBuilder.t142(
     writeShortLVPacket {
         writeShort(0) //_version
         writeShortLVByteArrayLimitedLength(apkId, 32)
+    }
+}
+
+internal fun BytePacketBuilder.t143(
+    d2: ByteArray
+) {
+    writeShort(0x143)
+    writeShortLVPacket {
+        writeFully(d2)
     }
 }
 
